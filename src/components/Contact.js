@@ -1,42 +1,7 @@
 // components/Contact.js
-import React, { useState } from 'react';
+import React from 'react';
 
 const Contact = () => {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    subject: '',
-    message: ''
-  });
-  const [submitted, setSubmitted] = useState(false);
-
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Here you would typically send this to your backend
-    console.log('Contact form submitted:', formData);
-    setSubmitted(true);
-    
-    // Reset form after 3 seconds
-    setTimeout(() => {
-      setSubmitted(false);
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        subject: '',
-        message: ''
-      });
-    }, 3000);
-  };
-
   return (
     <div className="contact-page">
       <div className="contact-header">
@@ -45,29 +10,29 @@ const Contact = () => {
       </div>
 
       <div className="contact-container">
-          <div className="info-card">
-            <div className="info-icon">📍</div>
-            <h3>Visit Us</h3>
-            <p>123 Salon Street<br />Beauty District<br />New York, NY 10001</p>
-          </div>
+        <div className="info-card">
+          <div className="info-icon">📍</div>
+          <h3>Visit Us</h3>
+          <p>123 Salon Street<br />Beauty District<br />New York, NY 10001</p>
+        </div>
 
-          <div className="info-card">
-            <div className="info-icon">📞</div>
-            <h3>Call Us</h3>
-            <p>+1 (555) 123-4567<br />+1 (555) 987-6543</p>
-          </div>
+        <div className="info-card">
+          <div className="info-icon">📞</div>
+          <h3>Call Us</h3>
+          <p>+1 (555) 123-4567<br />+1 (555) 987-6543</p>
+        </div>
 
-          <div className="info-card">
-            <div className="info-icon">✉️</div>
-            <h3>Email Us</h3>
-            <p>info@salonexcellence.com<br />support@salonexcellence.com</p>
-          </div>
+        <div className="info-card">
+          <div className="info-icon">✉️</div>
+          <h3>Email Us</h3>
+          <p>info@salonexcellence.com<br />support@salonexcellence.com</p>
+        </div>
 
-          <div className="info-card">
-            <div className="info-icon">⏰</div>
-            <h3>Business Hours</h3>
-            <p>Monday - Friday: 9am - 8pm<br />Saturday: 10am - 6pm<br />Sunday: Closed</p>
-          </div>
+        <div className="info-card">
+          <div className="info-icon">⏰</div>
+          <h3>Business Hours</h3>
+          <p>Monday - Friday: 9am - 8pm<br />Saturday: 10am - 6pm<br />Sunday: Closed</p>
+        </div>
       </div>
 
       <div className="map-container">
@@ -79,6 +44,7 @@ const Contact = () => {
           style={{ border: 0 }}
           allowFullScreen=""
           loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
         ></iframe>
       </div>
     </div>
