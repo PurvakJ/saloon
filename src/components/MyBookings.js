@@ -5,6 +5,7 @@ const MyBookings = ({ bookings, onCancel, onUpdate, loading, user }) => {
   const [actionType, setActionType] = useState('');
   const [reason, setReason] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [filter, setFilter] = useState('all'); // 'all', 'pending', 'approved', 'cancelled'
 
   const getStatusBadge = (status) => {
     const statusClasses = {
@@ -120,29 +121,61 @@ const MyBookings = ({ bookings, onCancel, onUpdate, loading, user }) => {
     };
   };
 
-  // Filter bookings (show all except past approved ones)
-  const currentBookings = bookings
-    .filter(booking => {
-      // For now, show all bookings (you can add filtering logic if needed)
-      return true;
-    })
-    .sort((a, b) => {
-      // Sort by date if available
-      if (a.date && b.date) {
-        return new Date(a.date) - new Date(b.date);
-      }
-      return 0;
-    });
+  // Filter bookings based on status
+  const filteredBookings = bookings.filter(booking => {
+    if (filter === 'all') return true;
+    return booking.status === filter;
+  }).sort((a, b) => {
+    // Sort by date if available
+    if (a.date && b.date) {
+      return new Date(a.date) - new Date(b.date);
+    }
+    return 0;
+  });
 
   return (
     <div className="my-bookings">
       <h2>My Bookings</h2>
       
-      {currentBookings.length === 0 ? (
-        <p className="no-bookings">You have no bookings.</p>
+      {/* Filter Controls */}
+      {bookings.length > 0 && (
+        <div className="filter-controls">
+          <button 
+            className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+            onClick={() => setFilter('all')}
+            disabled={loading}
+          >
+            All
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'pending' ? 'active' : ''}`}
+            onClick={() => setFilter('pending')}
+            disabled={loading}
+          >
+            Pending
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'approved' ? 'active' : ''}`}
+            onClick={() => setFilter('approved')}
+            disabled={loading}
+          >
+            Approved
+          </button>
+          <button 
+            className={`filter-btn ${filter === 'cancelled' ? 'active' : ''}`}
+            onClick={() => setFilter('cancelled')}
+            disabled={loading}
+          >
+            Cancelled
+          </button>
+        </div>
+      )}
+      
+      {filteredBookings.length === 0 ? (
+        <p className="no-bookings">You have no bookings in this category.</p>
       ) : (
         <div className="bookings-list">
-          {currentBookings.map(booking => {
+          {filteredBookings.map(booking => {
             const dateTime = getBookingDateTime(booking);
             
             return (
@@ -237,6 +270,7 @@ const MyBookings = ({ bookings, onCancel, onUpdate, loading, user }) => {
               <button 
                 className="btn btn-secondary"
                 onClick={() => setShowModal(false)}
+                disabled={loading}
               >
                 Back
               </button>
@@ -251,6 +285,209 @@ const MyBookings = ({ bookings, onCancel, onUpdate, loading, user }) => {
           </div>
         </div>
       )}
+
+      <style jsx>{`
+        .filter-controls {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+          padding: 8px 16px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          background: white;
+          cursor: pointer;
+          transition: all 0.3s;
+          font-size: 14px;
+        }
+        
+        .filter-btn:hover:not(:disabled) {
+          background: #f0f0f0;
+        }
+        
+        .filter-btn.active {
+          background: #007bff;
+          color: white;
+          border-color: #0056b3;
+        }
+        
+        .filter-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .no-bookings {
+          text-align: center;
+          padding: 40px;
+          color: #666;
+          font-size: 16px;
+        }
+        
+        .bookings-list {
+          display: grid;
+          gap: 15px;
+        }
+        
+        .booking-card {
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 15px;
+          background: white;
+        }
+        
+        .booking-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 10px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid #eee;
+        }
+        
+        .booking-date {
+          font-weight: 600;
+          color: #333;
+        }
+        
+        .booking-details p {
+          margin: 5px 0;
+          color: #666;
+        }
+        
+        .booking-actions {
+          display: flex;
+          gap: 10px;
+          margin-top: 15px;
+          padding-top: 10px;
+          border-top: 1px solid #eee;
+        }
+        
+        .badge {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .badge-pending {
+          background: #fff3cd;
+          color: #856404;
+        }
+        
+        .badge-approved {
+          background: #d4edda;
+          color: #155724;
+        }
+        
+        .badge-cancelled {
+          background: #f8d7da;
+          color: #721c24;
+        }
+        
+        .btn {
+          padding: 8px 16px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.3s;
+        }
+        
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        
+        .btn-primary {
+          background: #007bff;
+          color: white;
+        }
+        
+        .btn-danger {
+          background: #dc3545;
+          color: white;
+        }
+        
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
+        }
+        
+        .btn-sm {
+          padding: 4px 8px;
+          font-size: 12px;
+        }
+        
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 1000;
+        }
+        
+        .modal {
+          background: white;
+          padding: 24px;
+          border-radius: 8px;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow-y: auto;
+        }
+        
+        .modal-booking-info {
+          background: #f8f9fa;
+          padding: 12px;
+          border-radius: 4px;
+          margin: 15px 0;
+        }
+        
+        .modal-booking-info p {
+          margin: 5px 0;
+        }
+        
+        .form-group {
+          margin-bottom: 15px;
+        }
+        
+        .form-group label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: 500;
+          color: #333;
+        }
+        
+        .modal-textarea {
+          width: 100%;
+          padding: 8px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        
+        .modal-textarea:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 20px;
+        }
+      `}</style>
     </div>
   );
 };

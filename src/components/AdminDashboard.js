@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { callAPI } from '../utils/api';
 
 const AdminDashboard = ({ user }) => {
@@ -8,8 +8,11 @@ const AdminDashboard = ({ user }) => {
   const [users, setUsers] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [backgroundLoading, setBackgroundLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
   // Filter states for different tabs
   const [slotsFilter, setSlotsFilter] = useState('all'); // 'all', 'available', 'today'
@@ -24,6 +27,11 @@ const AdminDashboard = ({ user }) => {
     endTime: '',
     chairs: 5
   });
+
+  // Refs for auto-refresh
+  const refreshIntervalRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const isRefreshingRef = useRef(false);
 
   // Helper function to check if a date is valid (not in the past)
   const isSlotValid = useCallback((slot) => {
@@ -82,7 +90,48 @@ const AdminDashboard = ({ user }) => {
     }
   }, []);
 
-  const fetchData = useCallback(async () => {
+  // Background refresh function - doesn't set main loading state
+  const backgroundFetchData = useCallback(async () => {
+    if (isRefreshingRef.current || !isMountedRef.current) return;
+    
+    isRefreshingRef.current = true;
+    setBackgroundLoading(true);
+    
+    try {
+      const [slotsRes, bookingsRes, usersRes, reviewsRes] = await Promise.all([
+        callAPI({ action: 'getSlots' }),
+        callAPI({ action: 'getBookings' }),
+        callAPI({ action: 'getAllUsers', adminId: user.id }),
+        callAPI({ action: 'getReviews' })
+      ]);
+      
+      if (isMountedRef.current) {
+        setSlots(slotsRes);
+        setBookings(bookingsRes);
+        setUsers(usersRes);
+        setReviews(reviewsRes);
+        setLastRefreshed(new Date());
+        
+        // Debug: Log users data structure
+        console.log('Background refresh completed:', new Date().toLocaleTimeString());
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        // Don't show error for background refresh to avoid interrupting user
+        console.error('Background refresh failed:', err);
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setBackgroundLoading(false);
+      }
+      isRefreshingRef.current = false;
+    }
+  }, [user.id]);
+
+  // Initial full load with loading state
+  const initialFetchData = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     setLoading(true);
     try {
       const [slotsRes, bookingsRes, usersRes, reviewsRes] = await Promise.all([
@@ -91,26 +140,83 @@ const AdminDashboard = ({ user }) => {
         callAPI({ action: 'getAllUsers', adminId: user.id }),
         callAPI({ action: 'getReviews' })
       ]);
-      setSlots(slotsRes);
-      setBookings(bookingsRes);
-      setUsers(usersRes);
-      setReviews(reviewsRes);
       
-      // Debug: Log users data structure
-      console.log('Users loaded:', usersRes);
-      if (usersRes.length > 0) {
-        console.log('Sample user structure:', usersRes[0]);
+      if (isMountedRef.current) {
+        setSlots(slotsRes);
+        setBookings(bookingsRes);
+        setUsers(usersRes);
+        setReviews(reviewsRes);
+        setLastRefreshed(new Date());
+        
+        // Debug: Log users data structure
+        console.log('Users loaded:', usersRes);
+        if (usersRes.length > 0) {
+          console.log('Sample user structure:', usersRes[0]);
+        }
       }
     } catch (err) {
-      setError('Failed to fetch data');
+      if (isMountedRef.current) {
+        setError('Failed to fetch data');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [user.id]);
 
+  // Manual refresh handler - uses background refresh
+  const handleManualRefresh = useCallback(() => {
+    backgroundFetchData();
+  }, [backgroundFetchData]);
+
+  // Initial load
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    isMountedRef.current = true;
+    initialFetchData();
+    
+    return () => {
+      isMountedRef.current = false;
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [initialFetchData]);
+
+  // Auto-refresh setup
+  useEffect(() => {
+    if (autoRefresh) {
+      // Clear any existing interval
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+      
+      // Set new interval
+      refreshIntervalRef.current = setInterval(() => {
+        if (isMountedRef.current && !isRefreshingRef.current) {
+          console.log('Auto-refreshing data in background...');
+          backgroundFetchData();
+        }
+      }, 10000); // 10 seconds
+    } else {
+      // Clear interval if auto-refresh is disabled
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [autoRefresh, backgroundFetchData]);
+
+  // Toggle auto-refresh
+  const toggleAutoRefresh = useCallback(() => {
+    setAutoRefresh(prev => !prev);
+  }, []);
 
   // Create a mapping of usernames to phone numbers for efficient lookup
   const userPhoneMap = useMemo(() => {
@@ -391,7 +497,8 @@ const AdminDashboard = ({ user }) => {
       } else {
         setSuccess('Slot created successfully!');
         setNewSlot({ date: '', startTime: '', endTime: '', chairs: 5 });
-        await fetchData();
+        // Use background refresh after action
+        await backgroundFetchData();
         setTimeout(() => setSuccess(''), 3000);
       }
     } catch (err) {
@@ -416,7 +523,8 @@ const AdminDashboard = ({ user }) => {
       if (response.error) {
         setError(response.error);
       } else {
-        await fetchData();
+        // Use background refresh after action
+        await backgroundFetchData();
         setSuccess(`Booking ${status} successfully!`);
         setTimeout(() => setSuccess(''), 3000);
       }
@@ -445,7 +553,8 @@ const AdminDashboard = ({ user }) => {
       if (response.error) {
         setError(response.error);
       } else {
-        await fetchData();
+        // Use background refresh after action
+        await backgroundFetchData();
         setSuccess('Review deleted successfully!');
         setTimeout(() => setSuccess(''), 3000);
       }
@@ -546,44 +655,84 @@ const AdminDashboard = ({ user }) => {
     ));
   };
 
+  // Format last refreshed time
+  const formatLastRefreshed = useCallback(() => {
+    return lastRefreshed.toLocaleTimeString();
+  }, [lastRefreshed]);
+
   return (
     <div className="admin-dashboard">
       <div className="dashboard-header">
         <h1>Admin Dashboard</h1>
+        <div className="refresh-controls">
+          <div className="refresh-info">
+            <span className="last-refreshed">Last refreshed: {formatLastRefreshed()}</span>
+            {backgroundLoading && (
+              <span className="background-loading-indicator">
+                <span className="spinner-small"></span>
+                Refreshing...
+              </span>
+            )}
+            <button 
+              className={`refresh-toggle-btn ${autoRefresh ? 'active' : ''}`}
+              onClick={toggleAutoRefresh}
+              title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+              disabled={loading}
+            >
+              <span className="refresh-icon">⟳</span>
+              Auto {autoRefresh ? 'ON' : 'OFF'}
+            </button>
+            <button 
+              className="refresh-btn"
+              onClick={handleManualRefresh}
+              disabled={loading || backgroundLoading}
+              title="Refresh manually"
+            >
+              <span className="refresh-icon">↻</span>
+              Refresh Now
+            </button>
+          </div>
+        </div>
         <div className="dashboard-tabs">
           <button 
             className={`tab-btn ${activeTab === 'create' ? 'active' : ''}`}
             onClick={() => setActiveTab('create')}
+            disabled={loading}
           >
             Create Slots
           </button>
           <button 
             className={`tab-btn ${activeTab === 'pending' ? 'active' : ''}`}
             onClick={() => setActiveTab('pending')}
+            disabled={loading}
           >
             Pending Approvals {filteredPendingBookings.length > 0 && `(${filteredPendingBookings.length})`}
           </button>
           <button 
             className={`tab-btn ${activeTab === 'missed' ? 'active' : ''}`}
             onClick={() => setActiveTab('missed')}
+            disabled={loading}
           >
             Missed Slots {filteredMissedSlots.length > 0 && `(${filteredMissedSlots.length})`}
           </button>
           <button 
             className={`tab-btn ${activeTab === 'all' ? 'active' : ''}`}
             onClick={() => setActiveTab('all')}
+            disabled={loading}
           >
             All Bookings {filteredCurrentBookings.length > 0 && `(${filteredCurrentBookings.length})`}
           </button>
           <button 
             className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
             onClick={() => setActiveTab('users')}
+            disabled={loading}
           >
             Manage Users
           </button>
           <button 
             className={`tab-btn ${activeTab === 'reviews' ? 'active' : ''}`}
             onClick={() => setActiveTab('reviews')}
+            disabled={loading}
           >
             Reviews
           </button>
@@ -606,6 +755,7 @@ const AdminDashboard = ({ user }) => {
                   onChange={(e) => setNewSlot({...newSlot, date: e.target.value})}
                   min={new Date().toISOString().split('T')[0]}
                   required
+                  disabled={loading}
                 />
               </div>
               <div className="form-row">
@@ -616,6 +766,7 @@ const AdminDashboard = ({ user }) => {
                     value={newSlot.startTime}
                     onChange={(e) => setNewSlot({...newSlot, startTime: e.target.value})}
                     required
+                    disabled={loading}
                   />
                 </div>
                 <div className="form-group">
@@ -625,6 +776,7 @@ const AdminDashboard = ({ user }) => {
                     value={newSlot.endTime}
                     onChange={(e) => setNewSlot({...newSlot, endTime: e.target.value})}
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -637,6 +789,7 @@ const AdminDashboard = ({ user }) => {
                   min="1"
                   max="20"
                   required
+                  disabled={loading}
                 />
               </div>
               <button type="submit" className="btn btn-primary" disabled={loading}>
@@ -653,18 +806,21 @@ const AdminDashboard = ({ user }) => {
                   <button 
                     className={`filter-btn ${slotsFilter === 'all' ? 'active' : ''}`}
                     onClick={() => setSlotsFilter('all')}
+                    disabled={loading}
                   >
                     All Future Slots
                   </button>
                   <button 
                     className={`filter-btn ${slotsFilter === 'available' ? 'active' : ''}`}
                     onClick={() => setSlotsFilter('available')}
+                    disabled={loading}
                   >
                     Available Only
                   </button>
                   <button 
                     className={`filter-btn ${slotsFilter === 'today' ? 'active' : ''}`}
                     onClick={() => setSlotsFilter('today')}
+                    disabled={loading}
                   >
                     Today's Slots
                   </button>
@@ -691,75 +847,95 @@ const AdminDashboard = ({ user }) => {
           </div>
         )}
 
-        {activeTab === 'pending' && (
-          <div className="pending-approvals">
-            <h2>Pending Approvals (Current & Future Dates)</h2>
-            
-            {/* Filter Controls for Pending Bookings */}
-            {filteredPendingBookings.length > 0 && (
-              <div className="filter-controls">
-                <button 
-                  className={`filter-btn ${pendingFilter === 'all' ? 'active' : ''}`}
-                  onClick={() => setPendingFilter('all')}
-                >
-                  All Future
-                </button>
-                <button 
-                  className={`filter-btn ${pendingFilter === 'today' ? 'active' : ''}`}
-                  onClick={() => setPendingFilter('today')}
-                >
-                  Today
-                </button>
-                <button 
-                  className={`filter-btn ${pendingFilter === 'tomorrow' ? 'active' : ''}`}
-                  onClick={() => setPendingFilter('tomorrow')}
-                >
-                  Tomorrow
-                </button>
-                <button 
-                  className={`filter-btn ${pendingFilter === 'thisWeek' ? 'active' : ''}`}
-                  onClick={() => setPendingFilter('thisWeek')}
-                >
-                  This Week
-                </button>
-              </div>
-            )}
-            
-            {filteredPendingBookings.length === 0 ? (
-              <p>No pending approvals for current or future dates</p>
-            ) : (
-              filteredPendingBookings.map(booking => (
-                <div key={booking.id} className="booking-card">
-                  <div className="booking-info">
-                    <p><strong>User:</strong> {booking.userName}</p>
-                    <p><strong>Phone:</strong> {getPhoneNumberFromUsername(booking.userName)}</p>
-                    <p><strong>Date:</strong> {formatDateTime(booking.date, booking.start)}</p>
-                    <p><strong>Chair:</strong> {booking.chairNo}</p>
-                    {booking.reason && (
-                      <p><strong>Reason:</strong> {booking.reason}</p>
-                    )}
-                  </div>
-                  <div className="booking-actions">
-                    <button 
-                      className="btn btn-success"
-                      onClick={() => handleApproveBooking(booking.id, 'approved')}
-                      disabled={loading}
-                    >
-                      Approve
-                    </button>
-                    <button 
-                      className="btn btn-danger"
-                      onClick={() => handleApproveBooking(booking.id, 'cancelled')}
-                      disabled={loading}
-                    >
-                      Reject
-                    </button>
-                  </div>
+{activeTab === 'pending' && (
+  <div className="pending-approvals">
+    <h2>Pending Approvals (Current & Future Dates)</h2>
+    
+    {/* Filter Controls */}
+    {filteredPendingBookings.length > 0 && (
+      <div className="filter-controls">
+        <button 
+          className={`filter-btn ${pendingFilter === 'all' ? 'active' : ''}`}
+          onClick={() => setPendingFilter('all')}
+          disabled={loading}
+        >
+          All Future
+        </button>
+        <button 
+          className={`filter-btn ${pendingFilter === 'today' ? 'active' : ''}`}
+          onClick={() => setPendingFilter('today')}
+          disabled={loading}
+        >
+          Today
+        </button>
+        <button 
+          className={`filter-btn ${pendingFilter === 'tomorrow' ? 'active' : ''}`}
+          onClick={() => setPendingFilter('tomorrow')}
+          disabled={loading}
+        >
+          Tomorrow
+        </button>
+        <button 
+          className={`filter-btn ${pendingFilter === 'thisWeek' ? 'active' : ''}`}
+          onClick={() => setPendingFilter('thisWeek')}
+          disabled={loading}
+        >
+          This Week
+        </button>
+      </div>
+    )}
+    
+    {filteredPendingBookings.length === 0 ? (
+      <p>No pending approvals for current or future dates</p>
+    ) : (
+      <table className="bookings-table">
+        <thead>
+          <tr>
+            <th>User Name</th>
+            <th>Phone Number</th>
+            <th>Date & Time</th>
+            <th>Chair No</th>
+            <th>Reason</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredPendingBookings.map(booking => (
+            <tr key={booking.id}>
+              <td>{booking.userName}</td>
+              <td>{getPhoneNumberFromUsername(booking.userName)}</td>
+              <td>{formatDateTime(booking.date, booking.start)}</td>
+              <td>{booking.chairNo}</td>
+              <td>{booking.reason || '-'}</td>
+              <td>
+                <span className="status-badge pending">Pending</span>
+              </td>
+              <td>
+                <div className="action-buttons">
+                  <button 
+                    className="btn-approve"
+                    onClick={() => handleApproveBooking(booking.id, 'approved')}
+                    disabled={loading}
+                  >
+                    Approve
+                  </button>
+                  <button 
+                    className="btn-reject"
+                    onClick={() => handleApproveBooking(booking.id, 'cancelled')}
+                    disabled={loading}
+                  >
+                    Reject
+                  </button>
                 </div>
-              ))
-            )}
-          </div>
-        )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+)}
 
         {activeTab === 'missed' && (
           <div className="missed-slots">
@@ -771,24 +947,28 @@ const AdminDashboard = ({ user }) => {
                 <button 
                   className={`filter-btn ${missedFilter === 'all' ? 'active' : ''}`}
                   onClick={() => setMissedFilter('all')}
+                  disabled={loading}
                 >
                   All Missed
                 </button>
                 <button 
                   className={`filter-btn ${missedFilter === 'lastWeek' ? 'active' : ''}`}
                   onClick={() => setMissedFilter('lastWeek')}
+                  disabled={loading}
                 >
                   Last Week
                 </button>
                 <button 
                   className={`filter-btn ${missedFilter === 'lastMonth' ? 'active' : ''}`}
                   onClick={() => setMissedFilter('lastMonth')}
+                  disabled={loading}
                 >
                   Last Month
                 </button>
                 <button 
                   className={`filter-btn ${missedFilter === 'older' ? 'active' : ''}`}
                   onClick={() => setMissedFilter('older')}
+                  disabled={loading}
                 >
                   Older
                 </button>
@@ -838,24 +1018,28 @@ const AdminDashboard = ({ user }) => {
                 <button 
                   className={`filter-btn ${bookingsFilter === 'all' ? 'active' : ''}`}
                   onClick={() => setBookingsFilter('all')}
+                  disabled={loading}
                 >
                   All Future
                 </button>
                 <button 
                   className={`filter-btn ${bookingsFilter === 'today' ? 'active' : ''}`}
                   onClick={() => setBookingsFilter('today')}
+                  disabled={loading}
                 >
                   Today
                 </button>
                 <button 
                   className={`filter-btn ${bookingsFilter === 'thisWeek' ? 'active' : ''}`}
                   onClick={() => setBookingsFilter('thisWeek')}
+                  disabled={loading}
                 >
                   This Week
                 </button>
                 <button 
                   className={`filter-btn ${bookingsFilter === 'thisMonth' ? 'active' : ''}`}
                   onClick={() => setBookingsFilter('thisMonth')}
+                  disabled={loading}
                 >
                   This Month
                 </button>
@@ -985,6 +1169,84 @@ const AdminDashboard = ({ user }) => {
       </div>
 
       <style jsx>{`
+        .refresh-controls {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          margin-bottom: 15px;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        }
+        
+        .refresh-info {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+        }
+        
+        .last-refreshed {
+          font-size: 12px;
+          color: #666;
+        }
+        
+        .background-loading-indicator {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 12px;
+          color: #007bff;
+        }
+        
+        .spinner-small {
+          display: inline-block;
+          width: 12px;
+          height: 12px;
+          border: 2px solid #007bff;
+          border-top-color: transparent;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        
+        .refresh-toggle-btn,
+        .refresh-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          padding: 6px 12px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          background: white;
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.3s;
+        }
+        
+        .refresh-toggle-btn:hover:not(:disabled),
+        .refresh-btn:hover:not(:disabled) {
+          background: #f0f0f0;
+        }
+        
+        .refresh-toggle-btn.active {
+          background: #28a745;
+          color: white;
+          border-color: #218838;
+        }
+        
+        .refresh-toggle-btn:disabled,
+        .refresh-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .refresh-icon {
+          font-size: 14px;
+        }
+        
         .filter-controls {
           display: flex;
           gap: 10px;
@@ -1001,7 +1263,7 @@ const AdminDashboard = ({ user }) => {
           transition: all 0.3s;
         }
         
-        .filter-btn:hover {
+        .filter-btn:hover:not(:disabled) {
           background: #f0f0f0;
         }
         
@@ -1009,6 +1271,11 @@ const AdminDashboard = ({ user }) => {
           background: #007bff;
           color: white;
           border-color: #0056b3;
+        }
+        
+        .filter-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         
         .slots-list {
@@ -1165,6 +1432,11 @@ const AdminDashboard = ({ user }) => {
           border-radius: 4px;
         }
         
+        .form-group input:disabled {
+          background: #f5f5f5;
+          cursor: not-allowed;
+        }
+        
         .form-row {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -1253,6 +1525,145 @@ const AdminDashboard = ({ user }) => {
           display: flex;
           justify-content: flex-end;
         }
+
+        /* Pending Approvals Table Style */
+.pending-approvals .filter-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.pending-approvals .filter-btn {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.pending-approvals .filter-btn:hover {
+  background: #f0f0f0;
+}
+
+.pending-approvals .filter-btn.active {
+  background: #007bff;
+  color: white;
+  border-color: #0056b3;
+}
+
+/* Table styling for pending approvals */
+.pending-approvals .bookings-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.pending-approvals .bookings-table th {
+  background: #f8f9fa;
+  padding: 12px 15px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.pending-approvals .bookings-table td {
+  padding: 12px 15px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: middle;
+}
+
+.pending-approvals .bookings-table tbody tr:hover {
+  background-color: #f5f5f5;
+}
+
+/* Status badges */
+.pending-approvals .status-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.pending-approvals .status-badge.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+/* Action buttons in table */
+.pending-approvals .action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.pending-approvals .btn-approve,
+.pending-approvals .btn-reject {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.pending-approvals .btn-approve {
+  background: #28a745;
+  color: white;
+}
+
+.pending-approvals .btn-approve:hover:not(:disabled) {
+  background: #218838;
+}
+
+.pending-approvals .btn-reject {
+  background: #dc3545;
+  color: white;
+}
+
+.pending-approvals .btn-reject:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.pending-approvals .btn-approve:disabled,
+.pending-approvals .btn-reject:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Booking ID styling */
+.pending-approvals .booking-id {
+  font-family: monospace;
+  font-size: 13px;
+  color: #666;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .pending-approvals .bookings-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  
+  .pending-approvals .filter-controls {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 10px;
+  }
+  
+  .pending-approvals .filter-btn {
+    flex: 0 0 auto;
+  }
+}
+  
       `}</style>
     </div>
   );

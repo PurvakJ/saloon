@@ -7063,7 +7063,6 @@ img {
 /* Dashboard Tabs */
 .dashboard-tabs {
   display: flex;
-  gap: 1rem;
   border-bottom: 2px solid var(--color-border);
   padding-bottom: 0.5rem;
   margin-top: 1.5rem;

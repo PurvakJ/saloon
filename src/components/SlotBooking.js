@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [reason, setReason] = useState('');
   const [filter, setFilter] = useState('all'); // 'all', 'available', 'today'
 
   // Format date for display
@@ -180,14 +181,16 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
 
   const handleSlotClick = (slot) => {
     setSelectedSlot(slot);
+    setReason('');
     setShowConfirm(true);
   };
 
   const handleConfirmBooking = () => {
     if (selectedSlot) {
-      onBookSlot(selectedSlot.slotId);
+      onBookSlot(selectedSlot.slotId, reason);
       setShowConfirm(false);
       setSelectedSlot(null);
+      setReason('');
     }
   };
 
@@ -202,18 +205,21 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
           <button 
             className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
+            disabled={loading}
           >
             All Future Slots
           </button>
           <button 
             className={`filter-btn ${filter === 'available' ? 'active' : ''}`}
             onClick={() => setFilter('available')}
+            disabled={loading}
           >
             Available Only
           </button>
           <button 
             className={`filter-btn ${filter === 'today' ? 'active' : ''}`}
             onClick={() => setFilter('today')}
+            disabled={loading}
           >
             Today's Slots
           </button>
@@ -231,7 +237,7 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
               <div 
                 key={slot.slotId} 
                 className={`slot-card ${isFullyBooked ? 'fully-booked' : ''}`}
-                onClick={() => !isFullyBooked && handleSlotClick(slot)}
+                onClick={() => !isFullyBooked && !loading && handleSlotClick(slot)}
               >
                 <div className="slot-date">
                   {formatDate(slot.date)}
@@ -265,12 +271,29 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
               <p><strong>Date:</strong> {formatDate(selectedSlot.date)}</p>
               <p><strong>Time:</strong> {formatTimeRange(selectedSlot.start, selectedSlot.end)}</p>
               <p><strong>Chair Number:</strong> {(selectedSlot.booked || 0) + 1}</p>
-              <p><strong>Status:</strong> <span className="badge-pending">Pending Approval</span></p>
             </div>
+            
+            <div className="form-group">
+              <label htmlFor="bookingReason">Reason for booking (optional):</label>
+              <textarea
+                id="bookingReason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Please provide a reason for your booking..."
+                rows="3"
+                className="modal-textarea"
+              />
+            </div>
+            
             <div className="modal-actions">
               <button 
                 className="btn btn-secondary"
-                onClick={() => setShowConfirm(false)}
+                onClick={() => {
+                  setShowConfirm(false);
+                  setSelectedSlot(null);
+                  setReason('');
+                }}
+                disabled={loading}
               >
                 Cancel
               </button>
@@ -303,7 +326,7 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
           transition: all 0.3s;
         }
         
-        .filter-btn:hover {
+        .filter-btn:hover:not(:disabled) {
           background: #f0f0f0;
         }
         
@@ -313,11 +336,172 @@ const SlotBooking = ({ slots, onBookSlot, loading, user }) => {
           border-color: #0056b3;
         }
         
+        .filter-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
         .no-slots {
           text-align: center;
           padding: 40px;
           color: #666;
           font-size: 16px;
+        }
+        
+        .slots-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 20px;
+        }
+        
+        .slot-card {
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          padding: 15px;
+          cursor: pointer;
+          transition: all 0.3s;
+          background: white;
+        }
+        
+        .slot-card:hover:not(.fully-booked) {
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          transform: translateY(-2px);
+        }
+        
+        .slot-card.fully-booked {
+          opacity: 0.6;
+          cursor: not-allowed;
+          background: #f5f5f5;
+        }
+        
+        .slot-date {
+          font-weight: bold;
+          margin-bottom: 8px;
+          color: #333;
+        }
+        
+        .slot-time {
+          color: #666;
+          margin-bottom: 10px;
+        }
+        
+        .slot-availability {
+          margin-top: 10px;
+        }
+        
+        .available {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+        }
+        
+        .available.yes {
+          background: #d4edda;
+          color: #155724;
+        }
+        
+        .available.no {
+          background: #f8d7da;
+          color: #721c24;
+        }
+        
+        .booked-label {
+          margin-top: 10px;
+          font-size: 12px;
+          color: #721c24;
+          text-align: center;
+        }
+        
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 1000;
+        }
+        
+        .modal {
+          background: white;
+          padding: 24px;
+          border-radius: 8px;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow-y: auto;
+        }
+        
+        .modal-user-info,
+        .modal-booking-details {
+          background: #f8f9fa;
+          padding: 12px;
+          border-radius: 4px;
+          margin: 15px 0;
+        }
+        
+        .modal-user-info p,
+        .modal-booking-details p {
+          margin: 5px 0;
+        }
+        
+        .form-group {
+          margin-bottom: 15px;
+        }
+        
+        .form-group label {
+          display: block;
+          margin-bottom: 5px;
+          font-weight: 500;
+          color: #333;
+        }
+        
+        .modal-textarea {
+          width: 100%;
+          padding: 8px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-family: inherit;
+          resize: vertical;
+        }
+        
+        .modal-textarea:focus {
+          outline: none;
+          border-color: #007bff;
+          box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          margin-top: 20px;
+        }
+        
+        .btn {
+          padding: 8px 16px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        
+        .btn-primary {
+          background: #007bff;
+          color: white;
+        }
+        
+        .btn-secondary {
+          background: #6c757d;
+          color: white;
         }
       `}</style>
     </div>
